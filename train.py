@@ -16,23 +16,25 @@ import argparse
 import models.resnet as resnet
 import models.densenet as densenet
 from models import create_model
+import os
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 parser = argparse.ArgumentParser(description='Training code for GFNet')
 
-parser.add_argument('--data_url', default='./data', type=str,
+parser.add_argument('--data_url', default='/media/data/data02/Imagenet2012/', type=str,
                     help='path to the dataset (ImageNet)')
 
 parser.add_argument('--work_dirs', default='./output', type=str,
                     help='path to save log and checkpoints')
 
-parser.add_argument('--train_stage', default=-1, type=int,
+parser.add_argument('--train_stage', default=2, type=int,
                     help='select training stage, see our paper for details \
                           stage-1 : warm-up \
                           stage-2 : learn to select patches with RL \
                           stage-3 : finetune CNNs')
 
-parser.add_argument('--model_arch', default='', type=str,
+parser.add_argument('--model_arch', default='resnet50', type=str,
                     help='architecture of the model to be trained \
                          resnet50 / resnet101 / \
                          densenet121 / densenet169 / densenet201 / \
@@ -49,13 +51,13 @@ parser.add_argument('--T', default=4, type=int,
 parser.add_argument('--print_freq', default=100, type=int,
                     help='the frequency of printing log')
 
-parser.add_argument('--model_prime_path', default='', type=str,
+parser.add_argument('--model_prime_path', default='/home/liuliang/GFNet_pre/stage1/Initialization_model_prime_resnet50_patch_size_96_or_128.pth', type=str,
                     help='path to the pre-trained model of Global Encoder (for training stage-1)')
 
-parser.add_argument('--model_path', default='', type=str,
+parser.add_argument('--model_path', default='/home/liuliang/GFNet_pre/stage1/Initialization_model_resnet50.pth', type=str,
                     help='path to the pre-trained model of Local Encoder (for training stage-1)')
 
-parser.add_argument('--checkpoint_path', default='', type=str,
+parser.add_argument('--checkpoint_path', default='/home/liuliang/GFNet_pre/resnet50_patch_size_96_T_5.pth.tar', type=str,
                     help='path to the stage-2/3 checkpoint (for training stage-2/3)')
 
 parser.add_argument('--resume', default='', type=str,
@@ -66,21 +68,30 @@ args = parser.parse_args()
 
 
 def main():
-
+    #######################################################################################
+    ##   注释：
+    ##   辅助生成log文件
+    #######################################################################################
+    #生成output文件夹
     if not os.path.isdir(args.work_dirs):
         mkdir_p(args.work_dirs)
-
+    #生成记录路径
     record_path = args.work_dirs + '/GF-' + str(args.model_arch) \
                   + '_patch-size-' + str(args.patch_size) \
                   + '_T' + str(args.T) \
                   + '_train-stage' + str(args.train_stage)
+    #生成记录文件夹              
     if not os.path.isdir(record_path):
         mkdir_p(record_path)
+    #生成记录文件
     record_file = record_path + '/record.txt'
 
-
+    #######################################################################################
+    ##   注释：
+    ##   初始化模型
+    #######################################################################################
     # *create model* #
-    model_configuration = model_configurations[args.model_arch]
+    model_configuration = model_configurations[args.model_arch] #模型参数配置
     if 'resnet' in args.model_arch:
         model_arch = 'resnet'
         model = resnet.resnet50(pretrained=False)
@@ -110,9 +121,13 @@ def main():
         model = model_builder.build_model()
         model_prime = model_builder.build_model()
 
-    fc = Full_layer(model_configuration['feature_num'],
+    fc = Full_layer(model_configuration['feature_num'], 
                     model_configuration['fc_hidden_dim'],
                     model_configuration['fc_rnn'])
+
+    if args.train_stage == 2:
+        model = nn.DataParallel(model).cuda()
+        model_prime = nn.DataParallel(model_prime.cuda())
 
     if args.train_stage == 1:
         model.load_state_dict(torch.load(args.model_path))
@@ -122,7 +137,11 @@ def main():
         model.load_state_dict(checkpoint['model_state_dict'])
         model_prime.load_state_dict(checkpoint['model_prime_state_dict'])
         fc.load_state_dict(checkpoint['fc'])
-
+    
+    #######################################################################################
+    ##   注释：
+    ##   初始化工程参数
+    #######################################################################################
     train_configuration = train_configurations[model_arch]
 
     if args.train_stage != 2:
@@ -162,7 +181,7 @@ def main():
         normalize,
     ]))
     train_set_index = torch.randperm(len(train_set))
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=256, num_workers=32, pin_memory=False,
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=128, num_workers=32, pin_memory=False,
                                                sampler=torch.utils.data.sampler.SubsetRandomSampler(
                                                    train_set_index[:]))
 
@@ -266,8 +285,13 @@ def train(model_prime, model, fc, memory, ppo, optimizer, train_loader, criterio
         fc.train()
 
     if 'resnet' in args.model_arch or 'densenet' in args.model_arch or 'regnet' in args.model_arch:
-        dsn_fc_prime = model_prime.module.fc
-        dsn_fc = model.module.fc
+        if args.train_stage == 2:
+            dsn_fc_prime = model_prime.module.module.fc
+            dsn_fc = model.module.module.fc
+        if args.train_stage == 1:
+            dsn_fc_prime = model_prime.module.fc
+            dsn_fc = model.module.fc
+
     else:
         dsn_fc_prime = model_prime.module.classifier
         dsn_fc = model.module.classifier
@@ -282,7 +306,9 @@ def train(model_prime, model, fc, memory, ppo, optimizer, train_loader, criterio
 
         target_var = target.cuda()
         input_var = x.cuda()
-
+        # ================================================================== #
+        #                说明：prime_net 训练                                             
+        # ================================================================== #	
         input_prime = get_prime(input_var, args.patch_size)
 
         if train_configuration['train_model_prime'] and args.train_stage != 2:
@@ -312,7 +338,10 @@ def train(model_prime, model, fc, memory, ppo, optimizer, train_loader, criterio
         top1[0].update(acc.sum(0).mul_(100.0 / batch_size).data.item(), x.size(0))
 
         confidence_last = torch.gather(F.softmax(output.detach(), 1), dim=1, index=target_var.view(-1, 1)).view(1, -1)
-
+    
+    # ================================================================== #
+    #                说明：local_network 训练                                             
+    # ================================================================== #	
         for patch_step in range(1, args.T):
 
             if args.train_stage == 1:

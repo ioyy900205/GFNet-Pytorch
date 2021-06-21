@@ -1,4 +1,3 @@
-
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
@@ -17,14 +16,15 @@ import models.densenet as densenet
 from models import create_model
 
 
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser(description='Inference code for GFNet')
 
-parser.add_argument('--data_url', default='./data', type=str,
+parser.add_argument('--data_url', default='/media/data/data02/Imagenet2012/', type=str,
                     help='path to the dataset (ImageNet)')
 
-parser.add_argument('--checkpoint_path', default='', type=str,
+parser.add_argument('--checkpoint_path', default='/home/liuliang/GFNet_pre/resnet50_patch_size_96_T_5.pth.tar', type=str,
                     help='path to the pre-train model (default: none)')
 
 parser.add_argument('--eval_mode', default=2, type=int,
@@ -38,6 +38,8 @@ args = parser.parse_args()
 def main():
     # load pretrained model
     checkpoint = torch.load(args.checkpoint_path)
+
+
 
     try:
         model_arch = checkpoint['model_name']
@@ -63,6 +65,8 @@ def main():
               'length of the input sequence during inference')
 
     model_configuration = model_configurations[model_arch]
+
+
 
     if args.eval_mode > 0:
         # create model
@@ -106,7 +110,7 @@ def main():
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 normalize ]))
-        train_set_index = torch.randperm(len(train_set))
+        train_set_index = torch.randperm(len(train_set)) #1281167
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=256, num_workers=32, pin_memory=False,
                 sampler=torch.utils.data.sampler.SubsetRandomSampler(train_set_index[-200000:]))
 
@@ -118,7 +122,7 @@ def main():
                 normalize])),
             batch_size=256, shuffle=False, num_workers=16, pin_memory=False)
 
-        state_dim = model_configuration['feature_map_channels'] * math.ceil(patch_size/32) * math.ceil(patch_size/32)
+        state_dim = model_configuration['feature_map_channels'] * math.ceil(patch_size/32) * math.ceil(patch_size/32) #18432
         
         memory = Memory()
         policy = ActorCritic(model_configuration['feature_map_channels'], state_dim, model_configuration['policy_hidden_dim'], model_configuration['policy_conv'])

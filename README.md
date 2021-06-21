@@ -113,7 +113,7 @@ The dataset is expected to be prepared as follows:
 ```
 ImageNet
 ├── train
-│   ├── folder 1 (class 1)
+│   ├── folder 1 (class 1) 
 │   ├── folder 2 (class 1)
 │   ├── ...
 ├── val
