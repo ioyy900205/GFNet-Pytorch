@@ -27,7 +27,7 @@ parser.add_argument('--data_url', default='/media/data/data02/Imagenet2012/', ty
 parser.add_argument('--checkpoint_path', default='/home/liuliang/GFNet_pre/resnet50_patch_size_96_T_5.pth.tar', type=str,
                     help='path to the pre-train model (default: none)')
 
-parser.add_argument('--eval_mode', default=2, type=int,
+parser.add_argument('--eval_mode', default=1, type=int,
                     help='mode 0 : read the evaluation results saved in pre-trained models\
                           mode 1 : read the confidence thresholds saved in pre-trained models and infer the model on the validation set\
                           mode 2 : determine confidence thresholds on the training set and infer the model on the validation set')
@@ -120,7 +120,7 @@ def main():
                 transforms.CenterCrop(model_configuration['image_size']),
                 transforms.ToTensor(),
                 normalize])),
-            batch_size=256, shuffle=False, num_workers=16, pin_memory=False)
+            batch_size=1024, shuffle=False, num_workers=16, pin_memory=True) #change batch_size
 
         state_dim = model_configuration['feature_map_channels'] * math.ceil(patch_size/32) * math.ceil(patch_size/32) #18432
         
@@ -146,7 +146,7 @@ def main():
         
         if args.eval_mode == 2:
             print('generate logits on training samples...')
-            dynamic_threshold = torch.zeros([39, maximum_length])
+            dynamic_threshold = torch.zeros([39, maximum_length]) #[39, 5]
             train_logits, train_targets, _ = generate_logits(model_prime, model, fc, memory, policy, train_loader, maximum_length, prime_size, patch_size, model_arch)
 
         for p in range(1, 40):
@@ -198,10 +198,10 @@ def generate_logits(model_prime, model, fc, memory, policy, dataloader, maximum_
 
         with torch.no_grad():
 
-            output, state = model_prime(input_prime)
+            output, state = model_prime(input_prime) #[256,2048],[256,2048,3,3]
             
             if 'resnet' in model_arch or 'densenet' in model_arch:
-                output = fc(output, restart=True)
+                output = fc(output, restart=True) #[256,1000]
             elif 'regnet' in model_arch:
                 _ = fc(output, restart=True)
                 output = model_prime.module.fc(output)
@@ -209,7 +209,7 @@ def generate_logits(model_prime, model, fc, memory, policy, dataloader, maximum_
                 _ = fc(output, restart=True)
                 output = model_prime.module.classifier(output)
 
-            logits_temp[0] = F.softmax(output, 1)
+            logits_temp[0] = F.softmax(output, 1) #[256,1000]
             acc = accuracy(output, target_var, topk=(1,))
             top1[0].update(acc.sum(0).mul_(100.0 / x.size(0)).data.item(), x.size(0))
             

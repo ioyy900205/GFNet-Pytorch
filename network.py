@@ -136,14 +136,10 @@ class PPO:
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
-
         self.policy = ActorCritic(feature_dim, state_dim, hidden_state_dim, policy_conv, action_std).cuda()
-
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr, betas=betas)
-
         self.policy_old = ActorCritic(feature_dim, state_dim, hidden_state_dim, policy_conv, action_std).cuda()
         self.policy_old.load_state_dict(self.policy.state_dict())
-
         self.MseLoss = nn.MSELoss()
 
     def select_action(self, state, memory, restart_batch=False, training=True):
@@ -152,34 +148,25 @@ class PPO:
     def update(self, memory):
         rewards = []
         discounted_reward = 0
-
         for reward in reversed(memory.rewards):
             discounted_reward = reward + (self.gamma * discounted_reward)
             rewards.insert(0, discounted_reward)
-
         rewards = torch.cat(rewards, 0).cuda()
-
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
-
         old_states = torch.stack(memory.states, 0).cuda().detach()
         old_actions = torch.stack(memory.actions, 0).cuda().detach()
         old_logprobs = torch.stack(memory.logprobs, 0).cuda().detach()
 
         for _ in range(self.K_epochs):
             logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
-
             ratios = torch.exp(logprobs - old_logprobs.detach())
-
             advantages = rewards - state_values.detach()
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
-
             loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * dist_entropy
-
             self.optimizer.zero_grad()
             loss.mean().backward()
             self.optimizer.step()
-
         self.policy_old.load_state_dict(self.policy.state_dict())
 
 

@@ -28,7 +28,7 @@ parser.add_argument('--data_url', default='/media/data/data02/Imagenet2012/', ty
 parser.add_argument('--work_dirs', default='./output', type=str,
                     help='path to save log and checkpoints')
 
-parser.add_argument('--train_stage', default=2, type=int,
+parser.add_argument('--train_stage', default=3, type=int,
                     help='select training stage, see our paper for details \
                           stage-1 : warm-up \
                           stage-2 : learn to select patches with RL \
@@ -133,6 +133,8 @@ def main():
         model.load_state_dict(torch.load(args.model_path))
         model_prime.load_state_dict(torch.load(args.model_prime_path))
     else:
+        model = nn.DataParallel(model.cuda())
+        model_prime = nn.DataParallel(model_prime.cuda())
         checkpoint = torch.load(args.checkpoint_path)
         model.load_state_dict(checkpoint['model_state_dict'])
         model_prime.load_state_dict(checkpoint['model_prime_state_dict'])
